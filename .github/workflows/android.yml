@@ -1,0 +1,21 @@
+name: Compile Personal Tracker App
+on:
+  push:
+    branches: [ main ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository Code
+      uses: actions/checkout@v4
+
+    - name: Package Mobile Asset Deliverable
+      run: |
+        mkdir -p build-output
+        cp index.html build-output/index.html
+
+    - name: Upload Finished Tracker
+      uses: actions/upload-artifact@v4
+      with:
+        name: PrivateMileageTrackerApp
+        path: build-output/
