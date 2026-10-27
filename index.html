@@ -1,0 +1,173 @@
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mileage Tracker</title>
+    <script src="https://jsdelivr.net"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans min-h-screen p-4 flex flex-col items-center justify-center">
+
+    <header class="text-center mb-6">
+        <h1 class="text-2xl font-black text-emerald-400 tracking-wide">🚗 MILEAGE LOG</h1>
+        <p class="text-xs text-gray-400 mt-1">Personal Automated Tracker</p>
+    </header>
+
+    <main class="w-full max-w-sm bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl space-y-6">
+        <div id="setup-banner" class="bg-amber-500/20 border border-amber-500 p-3 rounded-xl text-xs text-amber-300 hidden text-center">
+            ⚠️ Setup Supabase keys in Settings first!
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 text-center">
+            <div class="bg-gray-700/40 p-3 rounded-xl border border-gray-600">
+                <span class="text-xs text-gray-400 block uppercase font-bold">Miles</span>
+                <span id="total-miles" class="text-xl font-black text-emerald-400">0.0</span>
+            </div>
+            <div class="bg-gray-700/40 p-3 rounded-xl border border-gray-600">
+                <span class="text-xs text-gray-400 block uppercase font-bold">Tax Sav</span>
+                <span id="tax-deduction" class="text-xl font-black text-blue-400">$0.00</span>
+            </div>
+        </div>
+
+        <div class="bg-gray-900/50 p-4 rounded-xl text-center border border-gray-700">
+            <p id="tracking-status" class="text-sm text-gray-300">🔄 System Standby...</p>
+            <button id="manual-btn" class="w-full mt-3 bg-emerald-500 active:bg-emerald-600 text-gray-900 font-bold py-2.5 rounded-xl text-sm transition">
+                START TRIP
+            </button>
+        </div>
+
+        <div id="settings-ui" class="space-y-3 pt-2 border-t border-gray-700">
+            <input type="text" id="sb-url" placeholder="Supabase Project URL" class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-xs text-white focus:outline-none">
+            <input type="password" id="sb-key" placeholder="Supabase Anon Key" class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-xs text-white focus:outline-none">
+            <button id="save-settings-btn" class="w-full bg-blue-600 active:bg-blue-700 text-white font-bold py-2 rounded-lg text-xs">
+                Save Database Setup Keys
+            </button>
+            <button id="export-btn" class="w-full bg-gray-700 active:bg-gray-600 text-emerald-400 font-bold py-2 rounded-lg text-xs border border-gray-600">
+                📊 Export CSV Log
+            </button>
+        </div>
+    </main>
+
+    <script>
+        let supabaseUrl = localStorage.getItem('sb_url') || '';
+        let supabaseKey = localStorage.getItem('sb_key') || '';
+        let activeTrip = null;
+        let lastPosition = null;
+
+        const totalMilesEl = document.getElementById('total-miles');
+        const taxDeductionEl = document.getElementById('tax-deduction');
+        const trackingStatusEl = document.getElementById('tracking-status');
+        const manualBtn = document.getElementById('manual-btn');
+        const setupBanner = document.getElementById('setup-banner');
+
+        document.getElementById('sb-url').value = supabaseUrl;
+        document.getElementById('sb-key').value = supabaseKey;
+        if(!supabaseUrl || !supabaseKey) setupBanner.classList.remove('hidden');
+
+        document.getElementById('save-settings-btn').addEventListener('click', () => {
+            supabaseUrl = document.getElementById('sb-url').value.trim();
+            supabaseKey = document.getElementById('sb-key').value.trim();
+            localStorage.setItem('sb_url', supabaseUrl);
+            localStorage.setItem('sb_key', supabaseKey);
+            setupBanner.classList.add('hidden');
+            alert('Connected successfully!');
+            loadSummary();
+        });
+
+        async function fetchSupabase(endpoint, options = {}) {
+            if(!supabaseUrl || !supabaseKey) return null;
+            const headers = { "apikey": supabaseKey, "Authorization": `Bearer ${supabaseKey}`, "Content-Type": "application/json" };
+            try {
+                const res = await fetch(`${supabaseUrl}/rest/v1/${endpoint}`, { ...options, headers });
+                return await res.json();
+            } catch (err) { return null; }
+        }
+
+        async function loadSummary() {
+            const data = await fetchSupabase('trips', { method: 'GET' });
+            if (!data) return;
+            let miles = data.reduce((sum, t) => sum + (t.total_miles || 0), 0);
+            totalMilesEl.innerText = miles.toFixed(1);
+            taxDeductionEl.innerText = `$${(miles * 0.67).toFixed(2)}`;
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 3958.8;
+            const dLat = (lat2-lat1) * Math.PI / 180;
+            const dLon = (lon2-lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+        }
+
+        if ("geolocation" in navigator) {
+            navigator.geolocation.watchPosition((pos) => {
+                const speed = pos.coords.speed;
+                const lat = pos.coords.latitude;
+                const lng = pos.coords.longitude;
+
+                if (!activeTrip && speed && speed > 4.5) {
+                    startTrip(lat, lng);
+                } else if (activeTrip && speed && speed > 1.5) {
+                    if (lastPosition) {
+                        activeTrip.total_miles += calculateDistance(lastPosition.lat, lastPosition.lng, lat, lng);
+                    }
+                    lastPosition = { lat, lng };
+                    trackingStatusEl.innerText = `🚗 Tracking: ${activeTrip.total_miles.toFixed(1)} mi`;
+                } else if (activeTrip && (!speed || speed < 1.0)) {
+                    if (activeTrip.stopTimer && Date.now() - activeTrip.stopTimer > 180000) {
+                        stopTrip(lat, lng);
+                    } else if (!activeTrip.stopTimer) {
+                        activeTrip.stopTimer = Date.now();
+                    }
+                }
+            }, null, { enableHighAccuracy: true });
+        }
+
+        function startTrip(lat, lng) {
+            activeTrip = { start_time: new Date().toISOString(), total_miles: 0, stopTimer: null };
+            lastPosition = { lat, lng };
+            trackingStatusEl.innerText = "🚀 Drive Triggered...";
+            manualBtn.innerText = "STOP TRIP";
+            manualBtn.className = "w-full mt-3 bg-red-500 active:bg-red-600 text-white font-bold py-2.5 rounded-xl text-sm transition";
+        }
+
+        async function stopTrip(lat, lng) {
+            if(!activeTrip) return;
+            trackingStatusEl.innerText = "🛑 Saving to database...";
+            await fetchSupabase('trips', {
+                method: 'POST',
+                body: JSON.stringify({ start_time: activeTrip.start_time, end_time: new Date().toISOString(), total_miles: activeTrip.total_miles || 0.1, category: 'Business' })
+            });
+            activeTrip = null;
+            lastPosition = null;
+            trackingStatusEl.innerText = "🔄 System Standby...";
+            manualBtn.innerText = "START TRIP";
+            manualBtn.className = "w-full mt-3 bg-emerald-500 active:bg-emerald-600 text-gray-900 font-bold py-2.5 rounded-xl text-sm transition";
+            loadSummary();
+        }
+
+        manualBtn.addEventListener('click', () => {
+            if(!activeTrip) {
+                navigator.geolocation.getCurrentPosition((p) => startTrip(p.coords.latitude, p.coords.longitude));
+            } else {
+                navigator.geolocation.getCurrentPosition((p) => stopTrip(p.coords.latitude, p.coords.longitude));
+            }
+        });
+
+        document.getElementById('export-btn').addEventListener('click', async () => {
+            const data = await fetchSupabase('trips', { method: 'GET' });
+            if(!data || data.length === 0) return alert('No data to export!');
+            let csv = "data:text/csv;charset=utf-8,Date,Miles,Value($)\n";
+            data.forEach(t => { csv += `${new Date(t.start_time).toLocaleDateString()},${t.total_miles.toFixed(2)},${(t.total_miles*0.67).toFixed(2)}\n`; });
+            const link = document.createElement("a");
+            link.setAttribute("href", encodeURI(csv));
+            link.setAttribute("download", "Mileage_Report.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        loadSummary();
+    </script>
+</body>
+</html>
