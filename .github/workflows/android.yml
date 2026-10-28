@@ -1,4 +1,4 @@
-name: Compile Personal Tracker App
+name: Compile Native Android App
 on:
   push:
     branches: [ main ]
@@ -9,13 +9,37 @@ jobs:
     - name: Checkout Repository Code
       uses: actions/checkout@v4
 
-    - name: Package Mobile Asset Deliverable
+    - name: Set up Node.js Environment
+      uses: actions/setup-node@v4
+      with:
+        node-size: 20
+
+    - name: Inject Background Location Permissions
+      run: |
+        mkdir -p android/app/src/main
+        echo '<?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://android.com" package="com.personal.mileagetracker">
+            <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+            <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+            <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+            <application android:label="Mileage Log" android:usesCleartextTraffic="true">
+                <activity android:name=".MainActivity" android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>' > android/app/src/main/AndroidManifest.xml
+
+    - name: Bundle HTML5 Tracking Layout
       run: |
         mkdir -p build-output
         cp index.html build-output/index.html
 
-    - name: Upload Finished Tracker
+    - name: Upload Native Tracking Assets
       uses: actions/upload-artifact@v4
       with:
-        name: PrivateMileageTrackerApp
+        name: NativeAndroidTrackerPackage
         path: build-output/
